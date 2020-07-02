@@ -10,7 +10,7 @@ buff *init_buff(size_t len);
 
 char* rand_id();
 
-buff* creer_header(uint8_t type, uint16_t time);
+buff* creer_header(uint8_t type, uint16_t time, char* da);
 
 buff* notify_ack(char* reply);
 

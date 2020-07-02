@@ -15,6 +15,7 @@
 #include <pthread.h>
 #include "main.h"
 
+//structure avec un buffer et sa taille
 buff *init_buff(size_t len){
   buff *tab=malloc(sizeof(buff));
   tab -> buffer = malloc(sizeof(char*)*len);
@@ -22,6 +23,7 @@ buff *init_buff(size_t len){
   return tab;
 }
 
+//renvoie un id chr* random avec des 1 et des 0 de taille 7
 char* rand_id(){
   char *id = NULL;
   int rand;
@@ -39,7 +41,8 @@ char* rand_id(){
   return id;
 }
 
-buff* creer_header(uint8_t type, uint16_t time) {
+//retourne une structure avec le paquet dans le buffer : publish, dump et paquet vide
+buff* creer_header(uint8_t type, uint16_t time, char* da) {
   uint8_t magic = 95;
   uint8_t version = 2;
   buff* p_buffer = NULL;
@@ -48,7 +51,8 @@ buff* creer_header(uint8_t type, uint16_t time) {
     time_t time_out = time;
     char *id = rand_id();
     char *secret = "Secret7";
-    char data [237]= "Tu bluff mortoni..";
+    char *data =malloc(sizeof(char)*227);
+    data =  da;
     uint8_t length = sizeof(uint16_t) + sizeof(char*) + sizeof(char*) + sizeof(char)*strlen(data);
     uint16_t body_length = sizeof(length) + sizeof(type) + length;
     uint16_t length_bi = htons (body_length);
@@ -65,7 +69,7 @@ buff* creer_header(uint8_t type, uint16_t time) {
   }else if (type == 5) {
     // DUMP
     char *tag = "TAG";
-    uint8_t length = 6;
+    uint8_t length = sizeof(uint16_t) + (sizeof(char)*4) ;
     uint16_t mbz =0;
     uint16_t body_length = sizeof(type) + sizeof(mbz) + sizeof(char)*4 + sizeof(length);
     uint16_t length_bi = htons(body_length);
@@ -79,6 +83,7 @@ buff* creer_header(uint8_t type, uint16_t time) {
     memcpy(p_buffer->buffer +sizeof(uint8_t) + sizeof(uint8_t) + sizeof(length_bi) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t), tag, sizeof(char)*4);
 
   }else if (type == 8) {
+    //PAQUET VIDE
     uint16_t body_length = 0;
     p_buffer = init_buff(body_length+4);
     memcpy(p_buffer->buffer, &magic, sizeof(uint8_t));
@@ -88,6 +93,7 @@ buff* creer_header(uint8_t type, uint16_t time) {
   return p_buffer;
 }
 
+//pareil mais pour notify ack c'est un fonction differente pcq on fait en fonction du buffer que le serveur envoi
 buff* notify_ack(char* reply){
   uint8_t magic = 95;
   uint8_t version = 2;
@@ -112,6 +118,7 @@ buff* notify_ack(char* reply){
   return p_buffer;
 }
 
+//afficher la GList table recu si vide affiche TABLE RECU VIDE
 void afficher_tab_recu(GList *list){
   if(g_list_length(list) > 0){
     printf("---------------TAB RECU-------------\n");
@@ -129,6 +136,7 @@ void afficher_tab_recu(GList *list){
   }
 }
 
+//idem mais pour table publish
 void afficher_tab_publish(GList *list){
   if(g_list_length(list) > 0){
     printf("---------------TAB PUBLISH-------------\n");
@@ -146,6 +154,7 @@ void afficher_tab_publish(GList *list){
   }
 }
 
+//recoit buffer reply du serveur  en fonctino du type on affiche les infos
 void afficher_paquet_recu(char* reply){
   printf("----------------------------------------------\n");
   if ((uint8_t)*(reply+4) == 2) {
@@ -178,6 +187,7 @@ void afficher_paquet_recu(char* reply){
   printf("----------------------------------------------\n\n");
 }
 
+//idem mais avec ce que nous on envoi
 void afficher_buff(uint8_t t, char *b){
   printf("----------------------------------------------\n");
   if ((uint8_t)*(b+4) == 4) {
@@ -213,10 +223,12 @@ void afficher_buff(uint8_t t, char *b){
 
 }
 
+//variables globals
 GList *table_recu = NULL;
 GList *table_publish = NULL;
 int s;
 
+// fonction qui boucle sur 1 pour recevoir les notify et envoyer notify ack
 void* recvf_notify(void* vargp){
   buff* reply_notif;
   buff* b_notif;
@@ -236,7 +248,7 @@ void* recvf_notify(void* vargp){
       b_notif = notify_ack(reply_notif->buffer);
     }else if( test_type == 6) {
       afficher_paquet_recu(reply_notif->buffer);
-      b_notif = creer_header(8,(uint16_t)3);
+      b_notif = creer_header(8,(uint16_t)3,"");
     }
     envoi= send(s, b_notif->buffer , b_notif->taille ,0);
     if (envoi <0){
@@ -249,7 +261,7 @@ void* recvf_notify(void* vargp){
 
 
 int main(int argc, char const *argv[]) {
-    //GETADDRINFO
+  //GETADDRINFO
   struct addrinfo hints;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_UNSPEC;
@@ -257,6 +269,7 @@ int main(int argc, char const *argv[]) {
   hints.ai_protocol = 0;
   struct addrinfo *res, *p;
   int rc;
+  //choix de l'address
   printf("Entrez l'adresse d'un serveur :\n");
   char ad[100] = "jch.irif.fr";
   scanf("%s", ad);
@@ -286,7 +299,7 @@ int main(int argc, char const *argv[]) {
 
 
   //ENVOIE TLV DUMP
-  buff *b = creer_header(5,(uint16_t)0);
+  buff *b = creer_header(5,(uint16_t)0,"");
   ssize_t envoi;
   envoi= send(s, b->buffer , b->taille ,0);
   if (envoi <0){
@@ -305,7 +318,10 @@ int main(int argc, char const *argv[]) {
     exit(1);
   }
 
+  //thread pour la reception des notify
   pthread_t thread;
+
+  //processus fils pour l'association avec timer envoi toute les 30s
   int sec = 30000000;
   buff* vide  = init_buff(1024);
   int fils = fork();
@@ -315,7 +331,7 @@ int main(int argc, char const *argv[]) {
       exit(0);
     case 0:
       while (1) {
-        vide = creer_header(8,0);
+        vide = creer_header(8,0,"");
         envoi= send(s, vide->buffer , vide->taille ,0);
         if (envoi <0){
           perror("ERREUR SENDTO");
@@ -329,11 +345,12 @@ int main(int argc, char const *argv[]) {
       break;
   }
 
+  //thread pour appel de la fonction recvf_notify
   if (pthread_create(&thread, NULL, recvf_notify, NULL) == -1) {
     perror("Erreur thread");
     exit(0);
   }
-
+  //interface client
   while (1) {
     printf("---MENU---\n");
     printf("1-Publier un message\n");
@@ -345,10 +362,14 @@ int main(int argc, char const *argv[]) {
     scanf("%d", &choix);
     switch (choix) {
       case 1:
+        printf("Taper le message que vous voulez envoyer(max 227 caract):\n");
+        char mess[227] = "ca marche pas";
+        size_t max = 227;
+        // getline(&mess, &max,stdin);
         printf("Choisir le time out (entre 1 et 100):\n");
         time_t time = 0;
         scanf("%ld", &time);
-        b = creer_header(4, time);
+        b = creer_header(4, time,mess);
         afficher_buff(4,b->buffer);
         envoi= send(s, b->buffer , b->taille ,0);
         if (envoi <0){
